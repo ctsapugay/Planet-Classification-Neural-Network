@@ -1,55 +1,55 @@
+from keras.models import load_model
 import numpy as np
 import matplotlib.pyplot as plt
-import tensorflow as tf
-from tensorflow import keras
-from keras.models import Sequential
-from keras.layers import Dense, Conv2D, MaxPool2D, Flatten
-from tensorflow.keras.preprocessing.image import ImageDataGenerator, load_img, img_to_array
-import tkinter as tk
-from tkinterdnd2 import TkinterDnD, DND_FILES  # Import drag-and-drop
-from keras.optimizers import Adam
-from keras.metrics import categorical_crossentropy
-# ImageDataGenerator to rescale the images
-IDG = ImageDataGenerator(rescale=1/255)
+from tensorflow.keras.preprocessing.image import load_img, img_to_array
 
-# Directory paths for training, testing, and validation data
-test_path = '/Users/gregchu/Downloads/planets_data/testing'
-train_path = '/Users/gregchu/Downloads/planets_data/training'
-valid_path = '/Users/gregchu/Downloads/planets_data/validating'
+# Loads already trained model
+model = load_model('/Users/gregchu/Downloads/v2_image_model/my_model.keras')
+# Preprocessing and tests on given images
 
-# Image generators for training, testing, and validation
-train = IDG.flow_from_directory(directory=train_path, target_size=(224, 224), class_mode='categorical', batch_size=10)
-test = IDG.flow_from_directory(directory=test_path, target_size=(224, 224), class_mode='categorical', batch_size=10)
-valid = IDG.flow_from_directory(directory=valid_path, target_size=(224, 224), class_mode='categorical', batch_size=10)
+def load_and_preprocess_images(image_paths):
+    images = []
+    for image_path in image_paths:
+        img = load_img(image_path, target_size=(224, 224))
+        img_array = img_to_array(img)
+        img_array = img_array / 255.0  # Normalizes images
+        images.append(img_array)
+    return np.array(images)  # Stacks the images into a single NumPy array
 
-# Build the model
-model = Sequential([
-    keras.layers.RandomFlip('horizontal'),
-    keras.layers.RandomRotation(0.2),
-    Conv2D(filters=32, kernel_size=(3, 3), activation='relu', padding='same', input_shape=(224, 224, 3)),
-    MaxPool2D(pool_size=(2, 2), strides=2),
-    keras.layers.Dropout(0.25),
-    Conv2D(filters=64, kernel_size=(3, 3), activation='relu', padding='same'),
-    MaxPool2D(pool_size=(2, 2), strides=2),
-    keras.layers.Dropout(0.25),
-    Flatten(),
-    Dense(units=11, activation='softmax')  # Assuming 11 classes in the dataset
-])
+test_image_paths = [
+    '/Users/gregchu/Downloads/moon.jpeg', 
+    '/Users/gregchu/Downloads/jupiter.jpeg', 
+    '/Users/gregchu/Downloads/mercury.jpeg', 
+    '/Users/gregchu/Downloads/venus.jpeg', 
+    '/Users/gregchu/Downloads/earth2.jpeg', 
+    '/Users/gregchu/Downloads/neptune.jpeg', 
+    '/Users/gregchu/Downloads/uranus2.jpg',
+    '/Users/gregchu/Downloads/mars.jpeg'
+]
+# Preprocess the batch of images
+img_batch = load_and_preprocess_images(test_image_paths)
 
+predictions = model.predict(img_batch)
+class_names = ['Earth', 'Jupiter', 'Mars', 'Mercury', 
+               'Moon', 'Neptune', 'Uranus', 'Venus']
 
-model.compile(optimizer=Adam(learning_rate=0.0001), loss='categorical_crossentropy', metrics=['accuracy'])
-# Train the model
-model.fit(x=train, validation_data=test, epochs=10, verbose=2)
-
-# Saves the model after training
-model.save('/Users/gregchu/Downloads/v2_image_model/my_model.h5')  # Or use a path without .h5 for SavedModel format
+# Creates the index_to_class dictionary
+index_to_class = {i: class_names[i] for i in range(len(class_names))}
 
 
-def load_and_preprocess_image(image_path):
-    # Load the image with the target size
-    img = load_img(image_path, target_size=(224, 224))
-    img_array = img_to_array(img)  # Convert image to numpy array
-    img_array = np.expand_dims(img_array, axis=0)  # Add batch dimension
-    img_array = img_array / 255.0  # Rescale the image as done for training
-    return img_array
+for i, prediction in enumerate(predictions):
+    predicted_index = np.argmax(prediction)
+    predicted_class = index_to_class[predicted_index]
+    plt.imshow(img_batch[i])
+    plt.title(f"Predicted Planet: {predicted_class}")
+    plt.axis('off')
+    plt.show()
 
+for i, prediction in enumerate(predictions):
+    confidence = np.max(prediction)
+    predicted_index = np.argmax(prediction)
+    if confidence < 0.5:
+        print(f"Prediction for image {i} is uncertain.")
+    else:
+        predicted_class = index_to_class[predicted_index]
+        print(f"Predicted Planet: {predicted_class}, Confidence: {confidence}")
