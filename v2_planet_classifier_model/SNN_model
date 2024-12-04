@@ -1,0 +1,106 @@
+import torch
+import torch.nn as nn
+import torchvision
+import torchvision.transforms as transforms
+from norse.torch.module.lif import LIFRecurrentCell
+from norse.torch.functional.lif import LIFParameters
+
+#Hyperparameters
+batch_size = 64
+num_classes = 10
+epochs = 5
+learning_rate = 0.01
+
+#Dataset
+transform = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize((0.5,), (0.5,))  #Normalize to mean 0 and std 1
+])
+
+train_dataset = torchvision.datasets.MNIST(root='/Users/gregchu/Downloads/planets_data/training', train=True, transform=transform, download=True)
+test_dataset = torchvision.datasets.MNIST(root='/Users/gregchu/Downloads/planets_data/testing', train=False, transform=transform, download=True)
+
+train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True)
+test_loader = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=False)
+
+# Define the Spiking Neural Network
+class SNN(nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim):
+        super(SNN, self).__init__()
+        self.fc1 = nn.Linear(input_dim, hidden_dim)  # Fully connected layer
+            
+        self.lif1 = LIFRecurrentCell(input_size=hidden_dim, hidden_size=hidden_dim) # Spiking neuron layer
+        self.fc2 = nn.Linear(hidden_dim, output_dim) # Output layer
+    
+    def forward(self, x):
+        batch_size, seq_len, _ = x.size()
+        state1 = None
+        spikes = []
+
+        for t in range(seq_len):  # Process time steps
+            input_t = x[:, t, :]
+            hidden, state1 = self.lif1(self.fc1(input_t), state1)
+            spikes.append(hidden)
+
+        out = torch.stack(spikes).sum(0)  # Aggregate spikes
+        return self.fc2(out)
+
+# Initialize the Model
+input_dim = 28 * 28  # MNIST image size
+hidden_dim = 128
+output_dim = num_classes
+model = SNN(input_dim, hidden_dim, output_dim)
+
+
+print(f"hidden_dim: {hidden_dim}")
+
+
+# Loss and Optimizer
+criterion = nn.CrossEntropyLoss()
+optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+
+
+# Training Loop
+for epoch in range(epochs):
+    model.train()
+    total_loss = 0
+    for images, labels in train_loader:
+        images = images.view(-1, 28 * 28)  # Flatten images
+        labels = labels
+
+        images = torch.relu(images)
+
+        # Convert input to spikes
+        spike_input = torch.bernoulli(images)  # Rate coding: Convert pixel values to spikes
+
+        # Forward pass
+        outputs = model(spike_input.unsqueeze(1))
+        loss = criterion(outputs, labels)
+
+        # Backward pass and optimization
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        
+        total_loss += loss.item()
+    print(f"Epoch [{epoch+1}/{epochs}], Loss: {total_loss/len(train_loader):.4f}")
+
+torch.save(model.state_dict(), '/Users/gregchu/Downloads/v2_image_model/my_model.pth')
+
+# Evaluation Loop
+model.eval()
+correct = 0
+total = 0
+with torch.no_grad():
+    for images, labels in test_loader:
+        images = images.view(-1, 28 * 28)
+        images = torch.relu(images)
+        spike_input = torch.bernoulli(images)
+
+        outputs = model(spike_input.unsqueeze(1))
+        _, predicted = torch.max(outputs, 1)
+        total += labels.size(0)
+        correct += (predicted == labels).sum().item()
+
+accuracy = 100 * correct / total
+print(f"Test Accuracy: {accuracy:.2f}%")
